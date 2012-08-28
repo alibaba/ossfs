@@ -1,11 +1,5 @@
 #!/usr/bin/env perl
 
-# TODO
-sub sigint {
-    exec("fusermount", "-u", "-z", $mountpoint);
-}
-$SIG{'INT'} = 'sigint';
-
 my $start_time = time;
 
 use strict;
@@ -24,8 +18,8 @@ my $debug = 0;
 my $buffer_size = 1024;
 
 my $host = "storage.aliyun.com";
-my $access_id = "acpcwefkoxsh5cygh2uid01p";
-my $access_key = "kDyCrM5S16udle+qaGf3mUAhxqQ=";
+my $access_id = undef;
+my $access_key = undef;
 
 my %buckets = ();
 my $bucket = "";
@@ -191,9 +185,11 @@ sub oss_mknod {
 
 sub oss_getdir {
     my $file = shift @_;
+    $file =~ s/^\/(.+)/$1/; # remove leading "/"
     print STDERR "*** oss_getdir: $file\n";
-    $file = "" if ($file eq "/");
-    my ($code, $content) = oss_request("GET", "/$bucket$file");
+    my %params = ( "delimiter" => "/" );
+    $params{"prefix"} = $file if ($file);
+    my ($code, $content) = oss_request("GET", "/$bucket", undef, \%params);
     if ($code == 200) {
         my @ret;
         my $xml = XMLin($content);
@@ -250,10 +246,14 @@ EOF
 
 my $unmount = 0;
 my $test = 0;
+my $file;
 GetOptions("u|unmount" => \$unmount,
            "b|bucket=s" => \$bucket,
            "h|help" => sub { &print_usage(); exit 0; },
            "d|debug" => \$debug,
+           "i|id=s" => \$access_id,
+           "k|key=s" => \$access_key,
+           "f|file=s" => \$file,
            "t|test" => \$test)
     or exit 1;
 
@@ -261,6 +261,23 @@ my $mountpoint = shift @ARGV;
 unless ($mountpoint) {
     print STDERR "mountpoint not specified.\n";
     &print_usage();
+    exit 1;
+}
+
+if ($file) {
+    open FILE, "<", $file or die "$!: $file\n";
+    chomp($access_id = <FILE>);
+    chomp($access_key = <FILE>);
+    close FILE;
+}
+
+unless ($access_id) {
+    print STDERR "empty access id\n";
+    exit 1;
+}
+
+unless ($access_key) {
+    print STDERR "empty access key\n";
     exit 1;
 }
 
@@ -315,6 +332,11 @@ if ($unmount) {
 if ($test) {
     print join(", ", oss_getdir("/")), "\n";
     exit 0;
+}
+
+# TODO
+if ($debug) {
+    system("fusermount -u -z $mountpoint");
 }
 
 Fuse::main( mountpoint => $mountpoint,
