@@ -68,7 +68,6 @@ sub str2gmt {
     return Time::Piece->strptime($str, "%a, %d %b %Y %T GMT")->epoch;
 }
 
-# $headers will be overwritten
 sub oss_request {
     my ($verb, $path, $content, $params_ref, $headers_ref) = @_;
 
