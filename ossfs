@@ -1,0 +1,469 @@
+#!/usr/bin/env perl
+
+my $start_time = time;
+
+use strict;
+use warnings;
+use POSIX;
+use Errno qw(:POSIX);
+use Fcntl ':mode';
+use Time::Piece;
+use Fuse;
+use Net::HTTP;
+use MIME::Base64;
+use Digest::MD5 qw(md5);
+use Digest::HMAC_SHA1;
+use XML::Simple;
+use Getopt::Long;
+
+my $debug = 0;
+my $buffer_size = 1024;
+
+my $host = "storage.aliyun.com";
+my $access_id = undef;
+my $access_key = undef;
+
+my %buckets = ();
+my $bucket = "";
+
+my $uid = $<;
+my ($gid) = split / /, $(;
+
+my %keyword = (
+    # sub-query
+    "acl" => 1, "group" => 1,
+    "uploadId" => 1, "partNumber" => 1, "uploads" => 1,
+    # override
+    "response-content-type" => 1,
+    "response-content-language" => 1,
+    "response-expires" => 1,
+    "reponse-cache-control" => 1,
+    "response-content-disposition" => 1,
+    "response-content-encoding" => 1 );
+
+sub debug {
+    return unless ($debug);
+    my $parent = ( caller(1) )[3];
+    $parent = "?" unless (defined($parent));
+    foreach (@_) {
+        foreach (split /\n/) {
+            printf "[%4d] ", time - $start_time;
+            print "$parent: $_\n";
+        }
+    }
+    print "\n";
+}
+
+setlocale(LC_TIME, "C"); # output of strftime is locale-dependent
+sub gmtstr {
+    return strftime "%a, %d %b %Y %T GMT", gmtime;
+}
+
+sub str2gmt {
+    my $str = shift @_;
+    return Time::Piece->strptime($str, "%a, %d %b %Y %T GMT")->epoch;
+}
+
+sub oss_request {
+    my ($verb, $path, $content, $params_ref, $headers_ref) = @_;
+
+    my $canonicalized_resource = $path;
+    my %params = $params_ref ? %$params_ref : ();
+    my %headers = $headers_ref ? %$headers_ref : ();
+
+    my $content_type = exists($headers{"Content-Type"}) ?
+        $headers{"Content-Type"} : "application/octet-stream";
+    $headers{"Content-Type"} = $content_type;
+
+    my $content_md5 = $content ? md5($content) : "";
+    $headers{"Content-Md5"} = $content_md5;
+
+    my $date = exists($headers{"Date"}) ? $headers{"Date"} : gmtstr();
+    $headers{"Date"} = $date;
+
+    my $hmac = Digest::HMAC_SHA1->new($access_key);
+    $hmac->add("$verb\n$content_md5\n$content_type\n$date\n");
+    foreach my $key ( sort map { lc } keys %headers ) {
+        $hmac->add("$key:$headers{$key}\n") if ($key =~ /^x-oss-/);
+    }
+
+    my @path_params;
+    my @canonicalized_params;
+    foreach ( sort keys %params ) {
+        my $str = $_;
+        $str .= "=" . $params{$_} if (defined($params{$_}));
+        push @path_params, $str;
+        push @canonicalized_params, $str if (exists($keyword{$_}));
+    }
+    $path .= "?" . join("&", @path_params) if (@path_params);
+    $canonicalized_resource .= "?" . join("&", @canonicalized_params)
+        if (@canonicalized_params);
+    $hmac->add($canonicalized_resource);
+    $headers{"Authorization"} = "OSS $access_id:" .
+        encode_base64($hmac->digest);
+
+    my $conn = Net::HTTP->new(Host => $host,
+                              KeepAlive => 1) || die $@;
+    debug($conn->format_request($verb => $path, %headers));
+    $conn->write_request($verb => $path, %headers, $content);
+
+    %headers = ();
+    $content = undef;
+    my $code = undef;
+
+    # TODO here might cause crash when there's no response headers
+    #      maybe eval should be added
+    ($code, undef, %headers) = $conn->read_response_headers;
+    {
+        my $ret = "HTTP $code\n";
+        while( my ($k, $v) = each %headers ) {
+            $ret .= "$k: $v\n";
+        }
+        debug($ret);
+    }
+    while (1) {
+        my $buf;
+        my $n = $conn->read_entity_body($buf, $buffer_size);
+        die "read failed: $!" unless defined $n;
+        last unless $n;
+        $content .= $buf;
+    }
+    debug("content: " . length($content) . " bytes") if ($content);
+    # debug($content);
+
+    return ($code, $content, %headers);
+}
+
+sub is_ok {
+    my $code = shift @_;
+    return ($code =~ /^2\d\d$/);
+}
+
+sub oss_dummy { 0; }
+
+sub oss_getattr {
+    my $file = shift @_;
+    debug("$file");
+    if ($file eq "/") {
+        return (0, 0, S_IFDIR | $buckets{$bucket}{"mode"}, 1, $uid, $gid, 0, 0,
+                $buckets{$bucket}{"ctime"},
+                $buckets{$bucket}{"ctime"},
+                $buckets{$bucket}{"ctime"}, 0, 0);
+    }
+    # try if is file
+    my ($code, undef, %headers) = oss_request("HEAD", "/$bucket$file");
+    if (is_ok($code)) {
+        return (0, # dev
+                0, # inode
+                S_IFREG | $buckets{$bucket}{"mode"}, # mode
+                1, # nlink
+                $uid,
+                $gid,
+                0, # rdev
+                $headers{"Content-Length"}, # size
+                str2gmt($headers{"Last-Modified"}), # atime
+                str2gmt($headers{"Last-Modified"}), # mtime
+                str2gmt($headers{"Last-Modified"}), # ctime
+                0, # blksize
+                $headers{"Content-Length"} / 512); # blocks
+    }
+    # try if is dir
+    ($code, undef, %headers) = oss_request("HEAD", "/$bucket$file/");
+    if (is_ok($code)) {
+        return (0, # dev
+                0, # inode
+                S_IFDIR | $buckets{$bucket}{"mode"}, # mode
+                1, # nlink
+                $uid,
+                $gid,
+                0, # rdev
+                $headers{"Content-Length"}, # size
+                str2gmt($headers{"Last-Modified"}), # atime
+                str2gmt($headers{"Last-Modified"}), # mtime
+                str2gmt($headers{"Last-Modified"}), # ctime
+                0, # blksize
+                $headers{"Content-Length"} / 512); # blocks
+    }
+    # ok, file seems not exist
+    return (0); # TODO
+    # return -ENOENT(); # TODO
+}
+
+sub oss_mknod {
+    my ($file, $mode, $dev) = @_;
+    debug(sprintf("%s %o %d", $file, $mode, $dev));
+    # TODO
+    return 0;
+}
+
+sub oss_mkdir {
+    my ($file, $mode) = @_;
+    debug(sprintf("%s %o", $file, $mode));
+    # TODO
+    return 0;
+}
+
+sub oss_getdir {
+    my $file = shift @_;
+    debug("$file");
+    $file =~ s/\///; # remove leading "/"
+    my %params = ( "delimiter" => "/" );
+    $params{"prefix"} = "$file/" if ($file); # in case $file is only "/"
+    my ($code, $content) = oss_request("GET", "/$bucket", undef, \%params);
+    if (is_ok($code)) {
+        my @ret;
+        my $xml = XMLin($content, ForceArray => ['Contents', 'CommonPrefixes']);
+        # files
+        foreach ( @{$xml->{Contents}} ) {
+            my $f = $_->{Key};
+            if (exists($params{"prefix"})) {
+                $f = substr($f, length($params{"prefix"}));
+            }
+            push @ret, $f if ($f); # prefix itself should be removed
+        }
+        # dirs
+        foreach ( @{$xml->{CommonPrefixes}} ) {
+            my $d = $_->{Prefix};
+            chop $d; # remove trailing "/"
+            if (exists($params{"prefix"})) {
+                $d = substr($d, length($params{"prefix"}));
+            }
+            push @ret, $d if ($d); # prefix itself should be removed
+        }
+        return (@ret, 0);
+    }
+    return -ENOENT(); # TODO
+}
+
+sub oss_unlink {
+    my $file = shift @_;
+    debug("$file");
+    my ($code) = oss_request("DELETE", "/$bucket$file");
+    return 0 if (is_ok($code));
+    # TODO: no such file
+    # TODO: is a dir?
+    return -ENOENT();
+}
+
+sub oss_rmdir {
+    my $file = shift @_;
+    debug("$file");
+    my ($code) = oss_request("DELETE", "/$bucket$file/");
+    return 0 if (is_ok($code));
+    # TODO
+    return -ENOENT();
+}
+
+sub oss_rename {
+    my ($old, $new) = @_;
+    debug("$old -> $new");
+    my ($code) = oss_request(
+        "PUT", "/$bucket$new", undef, undef,
+        { "x-oss-copy-source" => "/$bucket$old" } );
+    return -ENOENT() if ($code != 200);
+    return unlink($old);
+}
+
+sub oss_open {
+    my ($file, $flags, $fi_ref) = @_;
+    debug("$file $flags $fi_ref");
+    # store file size for reading
+    my ($code, undef, %headers) = oss_request("HEAD", "/$bucket$file");
+    if (is_ok($code) and exists($headers{"Content-Length"})) {
+        $$fi_ref{"filesize"} = $headers{"Content-Length"}; # size
+        debug("$file size: " . $$fi_ref{"filesize"});
+    }
+    # TODO: create a buffer for write
+    return (0, $fi_ref);
+}
+
+sub oss_read {
+    my ($file, $size, $offset, $fi_ref) = @_;
+    debug("$file $size $offset $fi_ref");
+    my $end = $offset + $size - 1;
+    $end = $$fi_ref{"filesize"} - 1
+        if ($fi_ref and exists($$fi_ref{"filesize"})
+            and $end >= $$fi_ref{"filesize"});
+    my ($code, $content, undef) = oss_request(
+        "GET", "/$bucket$file", undef, undef,
+        { "Range" => "bytes=$offset-$end" } );
+    debug("content-length: " . length($content));
+    return $content if (is_ok($code));
+    return -ENOENT();
+}
+
+sub oss_write {
+    my ($file, $buffer, $offset, $fi_ref) = @_;
+    debug("$file $buffer $offset $fi_ref");
+    # TODO
+    return 0;
+}
+
+sub oss_release {
+    my ($file, $flags, $fi_ref) = @_;
+    debug("$file $flags $fi_ref");
+    # TODO
+    undef %$fi_ref;
+    return 0;
+}
+
+sub oss_create {
+    my ($file, $flags) = @_;
+    debug("$file $flags");
+    # TODO
+    # my $fi_ref;
+    # return (0, $fi_ref);
+    return 0;
+}
+
+sub print_usage {
+    print <<EOF;
+usage: $0 [options] mountpoint
+options:
+    -u --unmount  unmount in lazy mode
+    -b --bucket   specify bucket name
+    -h --help     print this usage
+    -d --debug    debug mode
+    -i --id       specify access id
+    -k --key      specify access key
+    -f --file     speficy a file, which contains access id/key
+EOF
+;
+}
+
+my $unmount = 0;
+my $test = 0;
+my $file;
+GetOptions("u|unmount" => \$unmount,
+           "b|bucket=s" => \$bucket,
+           "h|help" => sub { &print_usage(); exit 0; },
+           "d|debug" => \$debug,
+           "i|id=s" => \$access_id,
+           "k|key=s" => \$access_key,
+           "f|file=s" => \$file,
+           "t|test" => \$test)
+    or exit 1;
+
+my $mountpoint = shift @ARGV;
+unless ($mountpoint) {
+    print STDERR "mountpoint not specified.\n";
+    &print_usage();
+    exit 1;
+}
+
+if ($file) {
+    open FILE, "<", $file or die "$!: $file\n";
+    chomp($access_id = <FILE>);
+    chomp($access_key = <FILE>);
+    close FILE;
+}
+
+die "empty access id\n" unless ($access_id);
+die "empty access key\n" unless ($access_key);
+
+# get all buckets
+my ($code, $content) = oss_request("GET", "/");
+if (is_ok($code)) {
+    my $xml = XMLin($content, ForceArray => ['Buckets']);
+    foreach ( @{ $xml->{Buckets} } ) {
+        $buckets{$_->{Bucket}->{Name}}{"ctime"} =
+            Time::Piece->strptime(
+                $_->{Bucket}->{CreationDate}, "%Y-%m-%dT%T.000Z")->epoch;
+    }
+    die "no buckets found\n" unless (%buckets);
+} else {
+    die "failed to list your bucket.\n";
+}
+
+# choose a bucket if not specified in parameter
+unless ($bucket) {
+    while (!exists($buckets{$bucket})) {
+        print "your bucket list:\n";
+        print join("\n", sort keys %buckets);
+        print "\nplease input a bucket id: ";
+        chomp($bucket = <STDIN>);
+    }
+}
+
+# get chosen bucket acl
+($code, $content) = oss_request("GET", "/$bucket", undef, {"acl" => undef});
+if (is_ok($code)) {
+    my $xml = XMLin($content);
+    my %acl = ( "private" => 0770,
+                "public-read" => 0775,
+                "public-read-write" => 0777 );
+    my $acl = $xml->{AccessControlList}->{Grant};
+    if (exists($acl{$xml->{AccessControlList}->{Grant}})) {
+        $buckets{$bucket}{"mode"} = $acl{$xml->{AccessControlList}->{Grant}};
+    } else {
+        print STDERR "unknown bucket acl: $acl\n";
+    }
+} else {
+    die "failed to get bucket acl.\n";
+}
+
+debug("uid: $uid");
+debug("gid: $gid");
+# debug("pid: $pid");
+debug(sprintf "bucket $bucket mode : %o\n", $buckets{$bucket}{"mode"});
+debug("bucket $bucket ctime: " . $buckets{$bucket}{"ctime"});
+
+if ($unmount) {
+    exec("fusermount", "-u", "-z", $mountpoint);
+}
+
+if ($test) {
+    print join(", ", oss_getdir("/")), "\n";
+    print join(", ", oss_getdir("/foo")), "\n";
+    exit 0;
+}
+
+# TODO: unmount first
+if ($debug) {
+    system("fusermount -u -z $mountpoint");
+}
+
+Fuse::main( mountpoint => $mountpoint,
+            debug => \$debug,
+
+            getattr => "main::oss_getattr",
+            readlink => "main::oss_dummy",
+            getdir => "main::oss_getdir",
+            mknod => "main::oss_mknod",
+            mkdir => "main::oss_mkdir",
+            unlink => "main::oss_unlink",
+            rmdir => "main::oss_rmdir",
+            symlink => "main::oss_dummy",
+            rename => "main::oss_rename",
+            link => "main::oss_dummy",
+            chmod => "main::oss_dummy",
+            chown => "main::oss_dummy",
+            truncate => "main::oss_dummy",
+            utime => "main:oss_dummy",
+            open => "main::oss_open",
+            read => "main::oss_read",
+            write => "main::oss_write",
+            statfs => "main::oss_dummy",
+            flush => "main::oss_dummy",
+            release => "main::oss_release",
+            fsync => "main::oss_dummy",
+            setxattr => "main::oss_dummy",
+            getxattr => "main::oss_dummy",
+            listxattr => "main::oss_dummy",
+            removexattr => "main::oss_dummy",
+            opendir => "main::oss_dummy",
+            # readdir => "main::oss_readdir",
+            releasedir => "main::oss_dummy",
+            fsyncdir => "main::oss_dummy",
+
+            # init => "main::oss_dummy",
+            # destory => "main::oss_dummy",
+
+            access => "main::oss_dummy",
+            create => "main::oss_create",
+            ftruncate => "main::dummy",
+            fgetattr => "main::oss_getattr",
+            # lock => "main::oss_dummy",
+            utimens => "main::oss_dummy",
+            # bmap => "main::oss_dummy",
+    );
