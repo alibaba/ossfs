@@ -7,6 +7,7 @@ use warnings;
 use POSIX;
 use Errno qw(:POSIX);
 use Fcntl ':mode';
+use HTTP::Date;
 use Time::Piece;
 use Fuse;
 use Net::HTTP;
@@ -54,16 +55,6 @@ sub debug {
     print "\n";
 }
 
-setlocale(LC_TIME, "C"); # output of strftime is locale-dependent
-sub gmtstr {
-    return strftime "%a, %d %b %Y %T GMT", gmtime;
-}
-
-sub str2gmt {
-    my $str = shift @_;
-    return Time::Piece->strptime($str, "%a, %d %b %Y %T GMT")->epoch;
-}
-
 sub oss_request {
     my ($verb, $path, $content, $params_ref, $headers_ref) = @_;
 
@@ -78,7 +69,7 @@ sub oss_request {
     my $content_md5 = $content ? md5($content) : "";
     $headers{"Content-Md5"} = $content_md5;
 
-    my $date = exists($headers{"Date"}) ? $headers{"Date"} : gmtstr();
+    my $date = exists($headers{"Date"}) ? $headers{"Date"} : time2str(time);
     $headers{"Date"} = $date;
 
     my $hmac = Digest::HMAC_SHA1->new($access_key);
@@ -161,9 +152,9 @@ sub oss_getattr {
                 $gid,
                 0, # rdev
                 $headers{"Content-Length"}, # size
-                str2gmt($headers{"Last-Modified"}), # atime
-                str2gmt($headers{"Last-Modified"}), # mtime
-                str2gmt($headers{"Last-Modified"}), # ctime
+                str2time($headers{"Last-Modified"}), # atime
+                str2time($headers{"Last-Modified"}), # mtime
+                str2time($headers{"Last-Modified"}), # ctime
                 0, # blksize
                 $headers{"Content-Length"} / 512); # blocks
     }
@@ -178,9 +169,9 @@ sub oss_getattr {
                 $gid,
                 0, # rdev
                 $headers{"Content-Length"}, # size
-                str2gmt($headers{"Last-Modified"}), # atime
-                str2gmt($headers{"Last-Modified"}), # mtime
-                str2gmt($headers{"Last-Modified"}), # ctime
+                str2time($headers{"Last-Modified"}), # atime
+                str2time($headers{"Last-Modified"}), # mtime
+                str2time($headers{"Last-Modified"}), # ctime
                 0, # blksize
                 $headers{"Content-Length"} / 512); # blocks
     }
