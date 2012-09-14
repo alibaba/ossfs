@@ -8,7 +8,6 @@ use POSIX;
 use Errno qw(:POSIX);
 use Fcntl ':mode';
 use HTTP::Date;
-use Time::Piece;
 use Fuse;
 use Net::HTTP;
 use MIME::Base64;
@@ -357,9 +356,8 @@ my ($code, $content) = oss_request("GET", "/");
 if (is_ok($code)) {
     my $xml = XMLin($content, ForceArray => ['Buckets']);
     foreach ( @{ $xml->{Buckets} } ) {
-        $buckets{$_->{Bucket}->{Name}}{"ctime"} =
-            Time::Piece->strptime(
-                $_->{Bucket}->{CreationDate}, "%Y-%m-%dT%T.000Z")->epoch;
+        $buckets{$_->{Bucket}->{Name}}{"ctime"} = str2time(
+            $_->{Bucket}->{CreationDate});
     }
     die "no buckets found\n" unless (%buckets);
 } else {
