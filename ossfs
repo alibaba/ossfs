@@ -68,6 +68,9 @@ sub oss_request {
     my $content_md5 = $content ? md5($content) : "";
     $headers{"Content-Md5"} = $content_md5;
 
+    my $content_length = $content? length($content) : 0;
+    $headers{"Content-Length"} = $content_length;
+
     my $date = exists($headers{"Date"}) ? $headers{"Date"} : time2str(time);
     $headers{"Date"} = $date;
 
@@ -175,8 +178,7 @@ sub oss_getattr {
                 $headers{"Content-Length"} / 512); # blocks
     }
     # ok, file seems not exist
-    return (0); # TODO
-    # return -ENOENT(); # TODO
+    return -ENOENT();
 }
 
 sub oss_mknod {
@@ -189,8 +191,10 @@ sub oss_mknod {
 sub oss_mkdir {
     my ($file, $mode) = @_;
     debug(sprintf("%s %o", $file, $mode));
-    # TODO
-    return 0;
+    # TODO: dest dir exist?
+    my ($code) = oss_request("PUT", "/$bucket$file/", "");
+    return 0 if (is_ok($code));
+    return -ENOENT();
 }
 
 sub oss_getdir {
@@ -402,8 +406,7 @@ if ($unmount) {
 }
 
 if ($test) {
-    print join(", ", oss_getdir("/")), "\n";
-    print join(", ", oss_getdir("/foo")), "\n";
+    oss_request("PUT", "/lymanrb/xxx/", "");
     exit 0;
 }
 
