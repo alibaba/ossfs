@@ -39,54 +39,116 @@ sub assert_str_eq {
 my $oss = OSS->new("acpcwefkoxsh5cygh2uid01p",
                    "kDyCrM5S16udle+qaGf3mUAhxqQ=");
 
+my $bucket = "lyman-ossfs-unittest";
+
+case("PutBucket"); {
+    # clear first
+    $oss->DeleteBucket($bucket);
+    assert_eq(1, $oss->PutBucket($bucket));
+}
+
 case("ListBucket");
-my ($ret, %buckets) = $oss->ListBucket;
-assert_eq(1, $ret);
-foreach my $bucket ( keys %buckets ) {
-    print "$bucket => $buckets{$bucket}\n";
+{
+    my ($ret, %buckets) = $oss->ListBucket;
+    assert_eq(1, $ret);
+    foreach my $bucket ( keys %buckets ) {
+        print "$bucket => $buckets{$bucket}\n";
+    }
+    assert_eq(1, exists($buckets{$bucket}));
 }
 
 case("GetBucketACL");
-$oss->{bucket} = "lymanrb";
-print $oss->GetBucketACL("lymanrb"), "\n";
+{
+    assert_str_eq("private", $oss->GetBucketACL($bucket));
+}
 
-case("GetBucket");
-print join("\n", $oss->GetBucket("lymanrb")), "\n";
-
-case("GetBucket w/ prefix and delimiter");
-print join("\n", $oss->GetBucket("lymanrb", prefix => "foo/", delimiter => "/")), "\n";
+case("PutBucketACL");
+{
+    assert_eq(1, $oss->PutBucketACL($bucket, "public-read"));
+    assert_str_eq("public-read", $oss->GetBucketACL($bucket));
+}
 
 case("PutObject");
-assert_eq(1, $oss->PutObject("lymanrb", "test_tmp", "hello world!", "text/plain"));
+{
+    assert_eq(1, $oss->PutObject($bucket, "foo",
+                                 "hello world!", "text/plain"));
+}
+
+case("GetObject");
+{
+    assert_str_eq("hello world!", $oss->GetObject($bucket, "foo"));
+}
 
 case("PutObject empty file");
-assert_eq(1, $oss->PutObject("lymanrb", "empty_tmp", ""));
+{
+    assert_eq(1, $oss->PutObject($bucket, "empty", ""));
+}
 
 case("HeadObject");
-my ($ret, $ctime, $size, $type) = $oss->HeadObject("lymanrb", "test_tmp");
-assert_eq(1, $ret);
-print "$ctime\n$size\n";
-print "$type\n" if (defined($type));
+{
+    print "foo\n";
+    my ($ret, $ctime, $size, $type) = $oss->HeadObject($bucket, "foo");
+    assert_eq(1, $ret);
+    assert_eq(12, $size);
+    assert_str_eq("text/plain", $type);
 
-case("GetObject");
-assert_str_eq("hello world!", $oss->GetObject("lymanrb", "test_tmp"));
+    print "empty\n";
+    ($ret, $ctime, $size, $type) = $oss->HeadObject($bucket, "empty");
+    assert_eq(1, $ret);
+    assert_eq(0, $size);
+    print "$ctime\n";
+    print "$type\n" if (defined($type));
+}
 
 case("CopyObject");
-assert_eq(1, $oss->CopyObject("lymanrb", "test_tmp", "lymanrb", "tmp_test"));
+{
+    assert_eq(1, $oss->CopyObject($bucket, "foo", $bucket, "bar/copy"));
 
-case("HeadObject");
-($ret, $ctime, $size, $type) = $oss->HeadObject("lymanrb", "tmp_test");
-assert_eq(1, $ret);
-print "$ctime\n$size\n";
-print "$type\n" if (defined($type));
+    assert_str_eq("hello world!", $oss->GetObject($bucket, "bar/copy"));
 
-case("GetObject");
-assert_str_eq("hello world!", $oss->GetObject("lymanrb", "tmp_test"));
+    my ($ret, $ctime, $size, $type) = $oss->HeadObject($bucket, "bar/copy");
+    assert_eq(1, $ret);
+    assert_eq(12, $size);
+    assert_str_eq("text/plain", $type);
+}
+
+case("GetBucket");
+{
+    my ($ret, @files) = $oss->GetBucket($bucket);
+    assert_eq(1, $ret);
+    assert_str_eq("foo", grep {$_ eq "foo"} @files);
+    assert_str_eq("bar/copy", grep {$_ eq "bar/copy"} @files);
+    assert_str_eq("empty", grep {$_ eq "empty"} @files);
+}
+
+case("GetBucket w/ prefix and delimiter");
+{
+    my ($ret, @files) = $oss->GetBucket($bucket,
+                                        prefix => "bar/",
+                                        delimiter => "/");
+    assert_eq(1, $ret);
+    assert_eq(0, $#files);
+    assert_str_eq("copy", $files[0]);
+}
 
 case("DeleteObject");
-assert_eq(1, $oss->DeleteObject("lymanrb", "test_tmp"));
-assert_eq(1, $oss->DeleteObject("lymanrb", "tmp_test"));
-assert_eq(1, $oss->DeleteObject("lymanrb", "empty_tmp"));
+{
+    assert_eq(1, $oss->DeleteObject($bucket, "foo"));
+
+    my ($ret, @files) = $oss->GetBucket($bucket);
+    assert_eq(0, scalar grep {$_ eq "foo"} @files);
+    assert_eq(1, $#files);
+    assert_eq(1, $oss->DeleteObject($bucket, "empty"));
+    assert_eq(1, $oss->DeleteObject($bucket, "bar/copy"));
+}
+
+case("DeleteBucket");
+{
+    assert_eq(1, $oss->DeleteBucket($bucket));
+    my ($ret, %buckets) = $oss->ListBucket;
+    assert_eq(1, $ret);
+    assert_eq(0, scalar grep {$_ eq $bucket} keys %buckets);
+}
 
 print "\n$fail failed.\n";
 exit ($fail == 0) ? 0 : 1;

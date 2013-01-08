@@ -12,6 +12,10 @@ use Digest::MD5 qw(md5_hex);
 use Digest::HMAC_SHA1;
 use XML::Simple;
 
+# for xml debug
+# use Data::Dumper;
+# print Dumper($xml);
+
 sub new {
     my $class = shift;
     my $access_id = shift;
@@ -72,18 +76,22 @@ sub sign {
 sub ListBucket {
     my $self = shift;
 
-    my $req = $self->sign(HTTP::Request->new(GET => "http://$self->{host}/"), "/");
+    my $req = $self->sign(
+        HTTP::Request->new(GET => "http://$self->{host}/"), "/");
     my $res = $self->{ua}->request($req);
     if ($res->is_success) {
         my %buckets;
-        my $xml = XMLin($res->decoded_content, ForceArray => ['Buckets']);
-        foreach ( @{ $xml->{Buckets} } ) {
-            $buckets{$_->{Bucket}->{Name}} = str2time(
-                $_->{Bucket}->{CreationDate});
+        my $xml = XMLin($res->decoded_content, ForceArray => ['Bucket']);
+        foreach ( @{ $xml->{Buckets}->{Bucket} } ) {
+            $buckets{$_->{Name}} = str2time(
+                $_->{CreationDate});
         }
         return (1, %buckets);
     }
     return 0;
+}
+sub GetService {
+    return ListBucket(@_);
 }
 
 # return string "private", "public-read" or "public-read-write" or 0 on error
@@ -141,6 +149,44 @@ sub GetBucket {
         return (1, @ret);
     }
     return 0;
+}
+
+# return if success
+sub PutBucket {
+    my $self = shift;
+    my $bucket = shift;
+
+    my $req = $self->sign(
+        HTTP::Request->new(PUT => "http://$bucket.$self->{host}/"),
+        "/$bucket/");
+    my $res = $self->{ua}->request($req);
+    return $res->is_success;
+}
+
+# return if success
+sub PutBucketACL {
+    my $self = shift;
+    my $bucket = shift;
+    my $acl = shift;
+    return 0 unless (grep {$_ eq $acl} ("public-read-write", "public-read", "private"));
+
+    my $req = HTTP::Request->new(PUT => "http://$bucket.$self->{host}/");
+    $req->header("x-oss-acl", $acl);
+    $req = $self->sign($req, "/$bucket/");
+    my $res = $self->{ua}->request($req);
+    return $res->is_success;
+}
+
+# return if success
+sub DeleteBucket {
+    my $self = shift;
+    my $bucket = shift;
+
+    my $req = $self->sign(
+        HTTP::Request->new(DELETE => "http://$bucket.$self->{host}/"),
+        "/$bucket/");
+    my $res = $self->{ua}->request($req);
+    return $res->is_success;
 }
 
 # return if success
@@ -228,9 +274,6 @@ sub CopyObject {
     return $res->is_success;
 }
 
-# TODO: DeleteBucket
-# TODO: PutBucket
-# TODO: PutBucketACL
 # TODO: DeleteMultipleObjects
 # TODO: MultipartUpload
 
