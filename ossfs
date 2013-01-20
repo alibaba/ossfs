@@ -27,10 +27,13 @@ my ($gid) = split / /, $(;
 my %acl = ("private" => 0770,
            "public-read" => 0775,
            "public-read-write" => 0777);
+my $create = "private"; # default create acl
 
 my $debug = 0;
 my $bucket_mode;
 my $bucket_time;
+
+my %wbuf;
 
 # file to object, remove leading "/" of input string
 sub f2o {
@@ -168,26 +171,26 @@ sub oss_read {
 sub oss_write {
     my ($file, $buffer, $offset, $fi_ref) = @_;
     # create a write buffer if necessary
-    $$fi_ref{"buffer"} = "" unless exists($$fi_ref{"buffer"});
-    my $len = length $$fi_ref{"buffer"};
+    $wbuf{$file} = "" unless (exists $wbuf{$file});
+    my $len = length $wbuf{$file};
     # to prevent hole in file
     if ($offset > $len) {
-        $$fi_ref{"buffer"} .= '\0' x ($offset - $len);
+        $wbuf{$file} .= '\0' x ($offset - $len);
     }
-    substr($$fi_ref{"buffer"}, $offset, length($buffer), $buffer);
-    return 0;
+    $len = length $buffer;
+    substr($wbuf{$file}, $offset, $len, $buffer);
+    return $len;
 }
 
 sub oss_release {
     my ($file, $flags, $fi_ref) = @_;
     my $ret = 0;
-    # write
-    if (exists $$fi_ref{"buffer"}) {
-        $ret = $oss->PutObject($bucket, f2o($file), $$fi_ref{"buffer"});
-        $ret = $ret ? 0 : -EIO();
+    if (exists $wbuf{$file}) {
+        $ret = $oss->PutObject($bucket, f2o($file), $wbuf{$file});
+        delete $wbuf{$file};
     }
-    undef %$fi_ref;
-    return $ret;
+    # undef %$fi_ref;
+    return $ret ? 0 : -EIO();
 }
 
 sub oss_create {
@@ -196,7 +199,19 @@ sub oss_create {
     return oss_open($file, $flags, $fi_ref);
 }
 
-my $create = "private";
+sub oss_ftruncate {
+    my ($file, $offset, $fi_ref) = @_;
+    if (exists $wbuf{$file}) {
+        my $len = length $wbuf{$file};
+        if ($offset > $len) {
+            $wbuf{$file} .= '\0' x ($offset - $len);
+        } elsif ($offset < $len) {
+            $wbuf{$file} = substr($wbuf{$file}, 0, $offset);
+        }
+    }
+    return 0;
+}
+
 sub print_usage {
     print <<EOF;
 usage: $0 [options] mountpoint
@@ -288,7 +303,7 @@ Fuse::main( mountpoint => $mountpoint,
             chmod => "main::oss_dummy",
             chown => "main::oss_dummy",
             truncate => "main::oss_dummy",
-            utime => "main:oss_dummy",
+            # utime => "main:oss_dummy", # deprecated
             open => "main::oss_open",
             read => "main::oss_read",
             write => "main::oss_write",
@@ -310,7 +325,7 @@ Fuse::main( mountpoint => $mountpoint,
 
             access => "main::oss_dummy",
             create => "main::oss_create",
-            ftruncate => "main::dummy",
+            ftruncate => "main::ftruncate",
             fgetattr => "main::oss_getattr",
             # lock => "main::oss_dummy",
             utimens => "main::oss_dummy",
