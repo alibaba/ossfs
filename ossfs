@@ -167,7 +167,7 @@ sub oss_read {
 
 sub oss_write {
     my ($file, $buffer, $offset, $fi_ref) = @_;
-    # create a buffer for write if necessary
+    # create a write buffer if necessary
     $$fi_ref{"buffer"} = "" unless exists($$fi_ref{"buffer"});
     my $len = length $$fi_ref{"buffer"};
     # to prevent hole in file
@@ -184,7 +184,6 @@ sub oss_release {
     # write
     if (exists $$fi_ref{"buffer"}) {
         $ret = $oss->PutObject($bucket, f2o($file), $$fi_ref{"buffer"});
-        print "### write $file: [", $ret, "]\n";
         $ret = $ret ? 0 : -EIO();
     }
     undef %$fi_ref;
@@ -197,12 +196,17 @@ sub oss_create {
     return oss_open($file, $flags, $fi_ref);
 }
 
+my $create = "private";
 sub print_usage {
     print <<EOF;
 usage: $0 [options] mountpoint
 options:
     -u --unmount  unmount in lazy mode
     -b --bucket   specify bucket name
+    -c --create   indicate ossfs to create one if bucket specified by -b
+                  does not exist, with specified acl (private, public-read
+                  or public-read-write), default $create
+                  if the bucket existed, do noting
     -h --help     print this usage
     -d --debug    debug mode
     -i --id       specify access id
@@ -216,6 +220,7 @@ my $unmount = 0;
 my $file;
 GetOptions("u|unmount" => \$unmount,
            "b|bucket=s" => \$bucket,
+           "c|create:s" => \$create,
            "h|help" => sub { &print_usage(); exit 0; },
            "d|debug" => \$debug,
            "i|id=s" => \$access_id,
@@ -244,16 +249,12 @@ $oss = OSS->new($access_id, $access_key);
 
 # get all buckets
 (undef, %buckets) = $oss->ListBucket();
-die "no buckets found\n" unless (%buckets);
-
-# choose a bucket if not specified in parameter
-unless ($bucket) {
-    while (!exists($buckets{$bucket})) {
-        print "your bucket list:\n";
-        print join("\n", sort keys %buckets);
-        print "\nplease input a bucket id: ";
-        chomp($bucket = <STDIN>);
-    }
+# create a bucket if necessary
+if (!exists($buckets{$bucket}) and $create) {
+    die "failed to create bucket $bucket\n"
+        unless ($oss->PutBucketACL($create));
+    # refresh buckets
+    (undef, %buckets) = $oss->ListBucket();
 }
 
 # for current bucket

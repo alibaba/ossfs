@@ -62,7 +62,7 @@ case("GetBucketACL");
     assert_str_eq("private", $oss->GetBucketACL($bucket));
 }
 
-case("PutBucketACL");
+case("PutBucketACL as modifier");
 {
     assert_eq(1, $oss->PutBucketACL($bucket, "public-read"));
     assert_str_eq("public-read", $oss->GetBucketACL($bucket));
@@ -150,5 +150,25 @@ case("DeleteBucket");
     assert_eq(0, scalar grep {$_ eq $bucket} keys %buckets);
 }
 
-print "\n$fail failed.\n";
-exit ($fail == 0) ? 0 : 1;
+case("PutBucketACL as creator");
+{
+    my $acl = "public-read";
+    # create
+    $oss->DeleteBucket($bucket);
+    assert_eq(1, $oss->PutBucketACL($bucket, $acl));
+    # assert existence
+    my (undef, %buckets) = $oss->ListBucket;
+    assert_eq(1, exists($buckets{$bucket}));
+    # assert acl
+    assert_str_eq($acl, $oss->GetBucketACL($bucket));
+    # delete
+    assert_eq(1, $oss->DeleteBucket($bucket));
+}
+
+if ($fail == 0) {
+    print "\ndone.\n";
+    exit 0;
+} else {
+    print "\n$fail failed.\n";
+    exit 1;
+}
