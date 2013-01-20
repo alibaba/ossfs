@@ -19,6 +19,14 @@ ossfs is written in perl, please make sure these perl packages could be cound in
 
 the OSS.pm, delivered with ossfs, is a simple perl oss sdk module, which could be useful to perl coders. test.pl is a unittest script for this module.
 
+## road map
+
+- review code of rmdir and see if recursively remove object is needed
+- optimize memory usage when writing big files
+- make OSS.pm a CPAN module
+- OSS.pm support multiple part upload
+- <del>basic read/write</del>
+
 ## reference
 
 - [perl Fuse module](http://search.cpan.org/~dpavlin/Fuse-0.14/Fuse.pm)
