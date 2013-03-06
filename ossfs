@@ -14,6 +14,7 @@ push @INC, ".";
 use OSS;
 
 my $oss;
+my $host = "oss.aliyuncs.com";
 
 my $access_id = undef;
 my $access_key = undef;
@@ -222,6 +223,9 @@ options:
                   does not exist, with specified acl (private, public-read
                   or public-read-write), default $create
                   if the bucket existed, do noting
+    --host        specify oss host, default $host
+                  "internal" could be used short for oss-internal.aliyuncs.com
+                  any other string will be regarded as it is
     -h --help     print this usage
     -d --debug    debug mode
     -i --id       specify access id
@@ -236,12 +240,16 @@ my $file;
 GetOptions("u|unmount" => \$unmount,
            "b|bucket=s" => \$bucket,
            "c|create:s" => \$create,
+           "host=s" => \$host,
            "h|help" => sub { &print_usage(); exit 0; },
            "d|debug" => \$debug,
            "i|id=s" => \$access_id,
            "k|key=s" => \$access_key,
            "f|file=s" => \$file)
     or exit 1;
+
+# special host "internal"
+$host = "oss-internal.aliyuncs.com" if ($host eq "internal");
 
 my $mountpoint = shift @ARGV;
 unless ($mountpoint) {
@@ -260,7 +268,7 @@ if ($file) {
 die "empty access id\n" unless ($access_id);
 die "empty access key\n" unless ($access_key);
 
-$oss = OSS->new($access_id, $access_key);
+$oss = OSS->new($access_id, $access_key, $host);
 
 # get all buckets
 (undef, %buckets) = $oss->ListBucket();
