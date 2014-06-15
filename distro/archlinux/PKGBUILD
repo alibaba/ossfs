@@ -1,0 +1,33 @@
+# Contributor: Li Ruibo <lymanrb@gmail.com>
+
+pkgname=ossfs-git
+pkgver=8954a68c
+pkgrel=1
+pkgdesc="a fuse client to mount ossfs bucket to local file system"
+arch=('any')
+url="https://github.com/alibaba/ossfs"
+license=('BSD')
+depends=('fuse' 'perl' 'perl-http-date' 'perl-fuse' 'perl-libwww' 'perl-xml-simple' 'perl-digest-hmac')
+makedepends=('git')
+source=("$pkgname"::'git+https://github.com/alibaba/ossfs.git')
+md5sums=('SKIP')
+
+pkgver() {
+  cd "$srcdir/$pkgname"
+
+  # Use the tag of the last commit
+  # git describe --long | sed -E 's/([^-]*-g)/r\1/;s/-/./g'
+
+  # use last commit
+  git log -1 | head -n 1 | cut -d ' ' -f 2 | head -c 8
+}
+
+build() {
+  cd "$srcdir/$pkgname"
+}
+
+package() {
+  cd "$srcdir/$pkgname"
+  install -Dm644 OSS.pm "$pkgdir/usr/share/perl5/vendor_perl/OSS.pm"
+  install -Dm755 ossfs "$pkgdir/usr/bin/ossfs"
+}
