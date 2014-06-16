@@ -8,7 +8,7 @@ package OSS;
 use LWP::UserAgent;
 use HTTP::Date;
 use MIME::Base64;
-use Digest::MD5 qw(md5_hex);
+use Digest::MD5 qw(md5_base64);
 use Digest::HMAC_SHA1;
 use XML::Simple;
 
@@ -41,7 +41,7 @@ sub sign {
     my $verb = $req->method;
     my $md5 = "";
     if ($req->content) {
-        $md5 =  md5_hex($req->content);
+        $md5 = md5_base64($req->content) . "==";
         $req->header("Content-Md5" => $md5);
     }
     my $type = $req->header("Content-Type");
