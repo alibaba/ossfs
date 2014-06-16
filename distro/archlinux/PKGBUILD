@@ -1,13 +1,13 @@
 # Contributor: Li Ruibo <lymanrb@gmail.com>
 
 pkgname=ossfs-git
-pkgver=8954a68c
+pkgver=20140616
 pkgrel=1
 pkgdesc="a fuse client to mount ossfs bucket to local file system"
 arch=('any')
 url="https://github.com/alibaba/ossfs"
 license=('BSD')
-depends=('fuse' 'perl' 'perl-http-date' 'perl-fuse' 'perl-libwww' 'perl-xml-simple' 'perl-digest-hmac')
+depends=('perl-fuse' 'perl-http-date' 'perl-libwww' 'perl-xml-simple' 'perl-digest-hmac')
 makedepends=('git')
 source=("$pkgname"::'git+https://github.com/alibaba/ossfs.git')
 md5sums=('SKIP')

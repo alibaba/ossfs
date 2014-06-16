@@ -4,7 +4,7 @@ ossfs is a fuse client to mount your [aliyun oss](http://oss.aliyun.com/) bucket
 
 ## installation
 
-packages for popular linux distributions are coming soon (or maybe not that soon)
+run `makepkg` in distro/package/archlinux will generate archlinux package
 
 ## developer
 
