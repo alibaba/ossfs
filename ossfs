@@ -217,32 +217,35 @@ sub print_usage {
     print <<EOF;
 usage: $0 [options] mountpoint
 options:
-    -u --unmount  unmount in lazy mode
-    -b --bucket   specify bucket name
-    -c --create   indicate ossfs to create one if bucket specified by -b
-                  does not exist, with specified acl (private, public-read
-                  or public-read-write), default $create
-                  if the bucket existed, do noting
-    --host        specify oss host, default $host
-                  "internal" could be used short for oss-internal.aliyuncs.com
-                  any other string will be regarded as it is
-    -h --help     print this usage
-    -d --debug    debug mode
-    -i --id       specify access id
-    -k --key      specify access key
-    -f --file     speficy a file, which contains access id/key
+    -u --unmount   unmount in lazy mode
+    -b --bucket    specify bucket name
+    -c --create    indicate ossfs to create one if bucket specified by -b
+                   does not exist, with specified acl (private, public-read
+                   or public-read-write), default $create
+                   if the bucket existed, do noting
+    --host         specify oss host, default $host
+                   "internal" could be used short for oss-internal.aliyuncs.com
+                   any other string will be regarded as it is
+    -h --help      print this usage
+    -d --debug     debug mode
+    -o --mountopts mount options for fuse
+    -i --id        specify access id
+    -k --key       specify access key
+    -f --file      speficy a file, which contains access id/key
 EOF
 ;
 }
 
 my $unmount = 0;
 my $file;
+my $mountopts;
 GetOptions("u|unmount" => \$unmount,
            "b|bucket=s" => \$bucket,
            "c|create:s" => \$create,
            "host=s" => \$host,
            "h|help" => sub { &print_usage(); exit 0; },
            "d|debug" => \$debug,
+           "o|mountopts=s" => \$mountopts,
            "i|id=s" => \$access_id,
            "k|key=s" => \$access_key,
            "f|file=s" => \$file)
@@ -338,4 +341,6 @@ Fuse::main( mountpoint => $mountpoint,
             # lock => "main::oss_dummy",
             utimens => "main::oss_dummy",
             # bmap => "main::oss_dummy",
+
+            mountopts => $mountopts,
     );
