@@ -16,6 +16,8 @@ use XML::Simple;
 # use Data::Dumper;
 # print Dumper($xml);
 
+my $debug = 0;
+
 sub new {
     my $class = shift;
     my $access_id = shift;
@@ -72,13 +74,29 @@ sub sign {
     return $req;
 }
 
+sub request {
+    my $self = shift;
+    my $req = shift;
+
+    if ($debug) {
+        print STDERR ">>> ", (caller(1))[3], "\n";
+        print STDERR $req->as_string, "\n";
+    }
+    my $res = $self->{ua}->request($req);
+    if ($debug) {
+        print STDERR $res->as_string, "\n";
+        print STDERR "<<<\n";
+    }
+    return $res;
+}
+
 # return 0|1 and a hash of { bucket_name => creation_date }
 sub ListBucket {
     my $self = shift;
 
     my $req = $self->sign(
         HTTP::Request->new(GET => "http://$self->{host}/"), "/");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     if ($res->is_success) {
         my %buckets;
         my $xml = XMLin($res->decoded_content, ForceArray => ['Bucket']);
@@ -102,7 +120,7 @@ sub GetBucketACL {
     my $req = $self->sign(
         HTTP::Request->new(GET => "http://$bucket.$self->{host}/?acl"),
         "/$bucket/?acl");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     if ($res->is_success) {
         my $xml = XMLin($res->decoded_content);
         return $xml->{AccessControlList}->{Grant};
@@ -125,7 +143,7 @@ sub GetBucket {
     my $req = $self->sign(
         HTTP::Request->new(GET => "http://$bucket.$self->{host}/$param_str"),
         "/$bucket/");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     if ($res->is_success) {
         my $xml = XMLin($res->decoded_content,
                         ForceArray => ['Contents', 'CommonPrefixes']);
@@ -155,11 +173,15 @@ sub GetBucket {
 sub PutBucket {
     my $self = shift;
     my $bucket = shift;
+    my $acl = shift;
+    if (defined($acl)) {
+        return 0 unless (grep {$_ eq $acl} ("public-read-write", "public-read", "private"));
+    }
 
-    my $req = $self->sign(
-        HTTP::Request->new(PUT => "http://$bucket.$self->{host}/"),
-        "/$bucket/");
-    my $res = $self->{ua}->request($req);
+    my $req = HTTP::Request->new(PUT => "http://$bucket.$self->{host}/");
+    $req->header("x-oss-acl", $acl) if defined($acl);
+    $req = $self->sign($req, "/$bucket/");
+    my $res = $self->request($req);
     return $res->is_success;
 }
 
@@ -170,10 +192,11 @@ sub PutBucketACL {
     my $acl = shift;
     return 0 unless (grep {$_ eq $acl} ("public-read-write", "public-read", "private"));
 
-    my $req = HTTP::Request->new(PUT => "http://$bucket.$self->{host}/");
+    my $req = HTTP::Request->new(PUT => "http://$bucket.$self->{host}/?acl");
+
     $req->header("x-oss-acl", $acl);
-    $req = $self->sign($req, "/$bucket/");
-    my $res = $self->{ua}->request($req);
+    $req = $self->sign($req, "/$bucket/?acl");
+    my $res = $self->request($req);
     return $res->is_success;
 }
 
@@ -185,7 +208,7 @@ sub DeleteBucket {
     my $req = $self->sign(
         HTTP::Request->new(DELETE => "http://$bucket.$self->{host}/"),
         "/$bucket/");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     return $res->is_success;
 }
 
@@ -202,7 +225,7 @@ sub PutObject {
     $req->header("Content-Length" => length($content));
     $req->content($content);
     $req = $self->sign($req, "/$bucket/$object");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     return $res->is_success;
 }
 
@@ -215,7 +238,7 @@ sub DeleteObject {
     my $req = $self->sign(
         HTTP::Request->new(DELETE => "http://$bucket.$self->{host}/$object"),
         "/$bucket/$object");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     return $res->is_success;
 }
 
@@ -228,7 +251,7 @@ sub HeadObject {
     my $req = $self->sign(
         HTTP::Request->new(HEAD => "http://$bucket.$self->{host}/$object"),
         "/$bucket/$object");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     if ($res->is_success) {
         return (1,
                 $res->header("Last-Modified"),
@@ -252,7 +275,7 @@ sub GetObject {
     if (defined($begin) and defined($end)) {
         $req->header(Range => "$begin-$end");
     }
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     if ($res->is_success) {
         return $res->decoded_content;
     }
@@ -270,7 +293,7 @@ sub CopyObject {
     my $req = HTTP::Request->new(PUT => "http://$dest_bucket.$self->{host}/$dest_object");
     $req->header("x-oss-copy-source", "/$src_bucket/$src_object");
     $req = $self->sign($req, "/$dest_bucket/$dest_object");
-    my $res = $self->{ua}->request($req);
+    my $res = $self->request($req);
     return $res->is_success;
 }
 

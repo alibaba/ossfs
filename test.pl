@@ -7,6 +7,19 @@ use warnings;
 
 use OSS;
 
+my $conf_file = shift @ARGV;
+unless (defined($conf_file)) {
+    print "usage: $0 conf_file\n";
+    print "  conf_file should contain access id & key, each in a line.\n";
+    exit 0;
+}
+my $access_id = undef;
+my $access_key = undef;
+open FILE, "<", $conf_file or die "$!: $conf_file\n";
+chomp($access_id = <FILE>);
+chomp($access_key = <FILE>);
+close FILE;
+
 my $case_id = 0;
 sub case {
     my $name = shift;
@@ -36,8 +49,7 @@ sub assert_str_eq {
     }
 }
 
-my $oss = OSS->new("acpcwefkoxsh5cygh2uid01p",
-                   "kDyCrM5S16udle+qaGf3mUAhxqQ=");
+my $oss = OSS->new($access_id, $access_key);
 
 my $bucket = "lyman-ossfs-unittest";
 
@@ -150,19 +162,18 @@ case("DeleteBucket");
     assert_eq(0, scalar grep {$_ eq $bucket} keys %buckets);
 }
 
-case("PutBucketACL as creator");
+case("PutBucket as creator with acl");
 {
     my $acl = "public-read";
+    my $bucket = "lyman-ossfs-unittest-1";
+
     # create
     $oss->DeleteBucket($bucket);
-    assert_eq(1, $oss->PutBucketACL($bucket, $acl));
-    # assert existence
-    my (undef, %buckets) = $oss->ListBucket;
-    assert_eq(1, exists($buckets{$bucket}));
+    assert_eq(1, $oss->PutBucket($bucket, $acl));
     # assert acl
     assert_str_eq($acl, $oss->GetBucketACL($bucket));
     # delete
-    assert_eq(1, $oss->DeleteBucket($bucket));
+    $oss->DeleteBucket($bucket);
 }
 
 if ($fail == 0) {
