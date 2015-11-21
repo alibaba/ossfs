@@ -261,6 +261,10 @@ unless ($mountpoint) {
     exit 1;
 }
 
+if ($unmount) {
+    exec("fusermount", "-u", "-z", $mountpoint);
+}
+
 if ($file) {
     open FILE, "<", $file or die "$!: $file\n";
     chomp($access_id = <FILE>);
@@ -288,10 +292,6 @@ $bucket_time = $buckets{$bucket};
 $bucket_mode = $oss->GetBucketACL($bucket);
 die unless exists $acl{$bucket_mode};
 $bucket_mode = $acl{$bucket_mode};
-
-if ($unmount) {
-    exec("fusermount", "-u", "-z", $mountpoint);
-}
 
 # unmount first
 if ($debug) {

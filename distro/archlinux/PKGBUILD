@@ -1,7 +1,7 @@
 # Contributor: Li Ruibo <lymanrb@gmail.com>
 
 pkgname=ossfs-git
-pkgver=20140616
+pkgver=20151121
 pkgrel=1
 pkgdesc="a fuse client to mount ossfs bucket to local file system"
 arch=('any')
