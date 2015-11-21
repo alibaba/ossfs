@@ -4,7 +4,17 @@ ossfs is a fuse client to mount your [aliyun oss](http://oss.aliyun.com/) bucket
 
 ## installation
 
-run `makepkg` in distro/package/archlinux will generate archlinux package
+### archlinux
+
+run `makepkg` in distro/archlinux, and `pacmann -U ossfs-git-*.pkg.tar.xfz` to install
+
+### ubuntu
+
+make sure at least dependencies are installed:
+- libhttp-date-perl
+- libfuse-perl
+- libxml-simple-perl
+- libdigest-hmac-perl
 
 ## developer
 
