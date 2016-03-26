@@ -64,7 +64,7 @@ case("ListBucket");
     my ($ret, %buckets) = $oss->ListBucket;
     assert_eq(1, $ret);
     foreach my $bucket ( keys %buckets ) {
-        print "$bucket => $buckets{$bucket}\n";
+        print "$bucket => $buckets{$bucket}{'creation_date'}, $buckets{$bucket}{'endpoint'}, $buckets{$bucket}{'internal_endpoint'}\n";
     }
     assert_eq(1, exists($buckets{$bucket}));
 }

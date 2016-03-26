@@ -90,7 +90,7 @@ sub request {
     return $res;
 }
 
-# return 0|1 and a hash of { bucket_name => creation_date }
+# return 0|1 and a hash of { bucket_name => (creation_date, endpoint, internal_endpoint) }
 sub ListBucket {
     my $self = shift;
 
@@ -101,8 +101,9 @@ sub ListBucket {
         my %buckets;
         my $xml = XMLin($res->decoded_content, ForceArray => ['Bucket']);
         foreach ( @{ $xml->{Buckets}->{Bucket} } ) {
-            $buckets{$_->{Name}} = str2time(
-                $_->{CreationDate});
+            $buckets{$_->{Name}}{'creation_date'} = str2time($_->{CreationDate});
+            $buckets{$_->{Name}}{'endpoint'} = $_->{ExtranetEndpoint};
+            $buckets{$_->{Name}}{'internal_endpoint'} = $_->{IntranetEndpoint};
         }
         return (1, %buckets);
     }
