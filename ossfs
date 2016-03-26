@@ -14,13 +14,14 @@ push @INC, ".";
 use OSS;
 
 my $oss;
-my $host = "oss.aliyuncs.com";
+my $default_host = "oss.aliyuncs.com";
 
 my $access_id = undef;
 my $access_key = undef;
+my $bucket = undef;
+my $host = undef;
 
 my %buckets = ();
-my $bucket = "";
 
 my $uid = $<;
 my ($gid) = split / /, $(;
@@ -251,9 +252,6 @@ GetOptions("u|unmount" => \$unmount,
            "f|file=s" => \$file)
     or exit 1;
 
-# special host "internal"
-$host = "oss-internal.aliyuncs.com" if ($host eq "internal");
-
 my $mountpoint = shift @ARGV;
 unless ($mountpoint) {
     print STDERR "mountpoint not specified.\n";
@@ -267,30 +265,64 @@ if ($unmount) {
 
 if ($file) {
     open FILE, "<", $file or die "$!: $file\n";
-    chomp($access_id = <FILE>);
-    chomp($access_key = <FILE>);
+    my $line1 = <FILE>;
+    my $line2 = <FILE>;
+    my $line3 = <FILE>;
+    my $line4 = <FILE>;
+    chomp($access_id = $line1) if (not $access_id and $line1);
+    chomp($access_key = $line2) if (not $access_key and $line2);
+    chomp($bucket = $line3) if (not $bucket and $line3);
+    chomp($host = $line4) if (not $host and $line4);
     close FILE;
 }
 
 die "empty access id\n" unless ($access_id);
 die "empty access key\n" unless ($access_key);
+die "empry bucket\n" unless ($bucket);
 
-$oss = OSS->new($access_id, $access_key, $host);
+# special host 'internal'
+my $internal = 0;
+if ($host and $host eq 'internal') {
+    $internal = 1;
+    $host = undef;
+}
+$default_host = "oss-internal.aliyuncs.com" if ($internal);
 
 # get all buckets
-(undef, %buckets) = $oss->ListBucket();
-# create a bucket if necessary
-if (!exists($buckets{$bucket}) and $create) {
+my $listed = 0;
+$oss = OSS->new($access_id, $access_key, $default_host);
+($listed, %buckets) = $oss->ListBucket();
+
+# create bucket if necessary
+if ($create and $listed and !exists($buckets{$bucket})) {
     die "failed to create bucket $bucket\n"
-        unless ($oss->PutBucketACL($create));
+        unless ($oss->PutBucket($create));
     # refresh buckets
-    (undef, %buckets) = $oss->ListBucket();
+    ($listed, %buckets) = $oss->ListBucket();
 }
+
+# use server specified endpoint for specified bucket
+if ($listed and not $host) {
+    $host = $internal ? $buckets{$bucket}{'internal_endpoint'} : $buckets{$bucket}{'endpoint'};
+} else {
+    $host = $default_host;
+}
+
+my $masked_key = substr($access_key, 0, 3) . '*' x (length($access_key) - 6) . substr($access_key, -3);
+print STDERR <<EOF;
+access id : $access_id
+access key: $masked_key
+bucket    : $bucket
+host      : $host
+EOF
+;
+
+$oss = OSS->new($access_id, $access_key, $host);
 
 # for current bucket
 $bucket_time = $buckets{$bucket};
 $bucket_mode = $oss->GetBucketACL($bucket);
-die unless exists $acl{$bucket_mode};
+die "invalid bucket mode: $bucket_mode\n" unless exists $acl{$bucket_mode};
 $bucket_mode = $acl{$bucket_mode};
 
 # unmount first
