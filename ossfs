@@ -252,6 +252,7 @@ GetOptions("u|unmount" => \$unmount,
            "f|file=s" => \$file)
     or exit 1;
 
+$mountopts = "" unless $mountopts;
 my $mountpoint = shift @ARGV;
 unless ($mountpoint) {
     print STDERR "mountpoint not specified.\n";
@@ -331,7 +332,8 @@ if ($debug) {
 }
 
 Fuse::main( mountpoint => $mountpoint,
-            debug => \$debug,
+            mountopts => $mountopts,
+            debug => $debug,
 
             getattr => "main::oss_getattr",
             readlink => "main::oss_dummy",
@@ -373,6 +375,4 @@ Fuse::main( mountpoint => $mountpoint,
             # lock => "main::oss_dummy",
             utimens => "main::oss_dummy",
             # bmap => "main::oss_dummy",
-
-            mountopts => $mountopts,
     );

@@ -1,6 +1,8 @@
 # ossfs
 
-ossfs is a fuse client to mount your [aliyun oss](http://oss.aliyun.com/) bucket under linux
+ossfs is a fuse client to mount your [aliyun oss](http://oss.aliyun.com/) bucket under linux.
+
+Aliyun now offer official [ossfs](https://github.com/aliyun/ossfs) implementation, which is recommended over this project.
 
 ## installation
 
