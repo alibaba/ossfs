@@ -1,8 +1,9 @@
+###**_IMPORTANT NOTE_**
+**This repository is to be considered _DEPRECATED_ and all efforts are going towards developing the next version of the platform in [aliyun/ossfs](https://github.com/aliyun/ossfs).**
+
 # ossfs
 
 ossfs is a fuse client to mount your [aliyun oss](http://oss.aliyun.com/) bucket under linux.
-
-Aliyun now offer official [ossfs](https://github.com/aliyun/ossfs) implementation, which is recommended over this project.
 
 ## installation
 
